@@ -1,0 +1,103 @@
+互斥锁防缓存击穿 —— 问题与修复
+================================================
+
+一、报错
+------------------------------------------------
+java.lang.IllegalArgumentException: non null key required
+    at RedisTemplate.delete(RedisTemplate.java:711)
+    at ShopServiceImpl.unlock(ShopServiceImpl.java:183)
+    at ShopServiceImpl.queryWithMutext(ShopServiceImpl.java:128)
+    at ShopServiceImpl.queryById(ShopServiceImpl.java:71)
+
+
+二、主要错误
+------------------------------------------------
+错误 1（直接崩溃）：finally 里的 unlock 在"没加锁"的路径上也会执行
+
+    String lockkey = null;              // 83 行，先置空
+    try {
+        if (StrUtil.isNotBlank(shopJson))
+            return JSONUtil.toBean(...); // 92 行，命中缓存直接 return
+        ...
+        lockkey = "lock:shop" + id;      // 101 行，只有走到这儿才赋值
+        ...
+    } finally {
+        unlock(lockkey);                 // 128 行
+    }
+
+    Java 的 finally 对 try 里任何 return 都会执行。
+    命中缓存时从 92 行返回，lockkey 还是 null，
+    于是 unlock(null) -> delete(null) -> 抛 non null key required。
+
+    现象：同一家店的第二次请求必崩。
+      第 1 次：未命中 -> 走到 101 行 -> 正常；
+      第 2 次：命中   -> 92 行提前返回 -> finally 用 null 解锁 -> 500。
+    95~98 行"命中空值"的那条 return null 同理。
+
+错误 2（更隐蔽，防击穿形同虚设）：抢锁失败时把别人的锁删了
+
+    101 行先给 lockkey 赋值，102 行才 tryLock。
+    isLock == false 时走 104~108 行 sleep 后重试，
+    但外层 finally 照样执行 unlock(lockkey)
+    —— 删掉的是本线程根本没抢到的那把锁。
+
+    后果：A 拿到锁正在重建缓存，B 抢锁失败却删掉了 A 的锁，
+          C 立刻又能抢到锁进来重建 -> 多线程同时打数据库，互斥失效。
+
+错误 3（次要）：
+    · 101 行 "lock:shop" + id 是硬编码，与 RedisConstants.LOCK_SHOP_KEY
+      （"lock:shop:"，带冒号）不一致，将来换成 SimpleRedisLock 会锁不住同一个 key。
+    · 111、113 行 Thread.sleep(200) 写了两遍，重建延时变成 400ms。
+
+
+三、解决思路
+------------------------------------------------
+一句话：把"不加锁就能返回"的分支全部挪出 try，
+        保证只有持锁线程才会执行 unlock。
+
+1. 两条命中缓存的 return（92、97 行）移到 try 之前
+   —— 这时根本没加锁，也就谈不上解锁，直接修掉错误 1。
+
+2. 抢锁失败的重试 return（104~108 行）也移到 try 之前
+   —— 改成"先抢锁，抢到了才进 try/finally"，
+      从结构上保证只有持锁线程会解锁，修掉错误 2。
+
+3. 101 行改用常量：String lockKey = LOCK_SHOP_KEY + id;
+
+4. 两处 sleep(200) 合并成一处。
+
+修复后的骨架：
+
+    String shopJson = ...get(key);
+    if (StrUtil.isNotBlank(shopJson)) return JSONUtil.toBean(shopJson, Shop.class);
+    if (shopJson != null)             return null;
+
+    String lockKey = LOCK_SHOP_KEY + id;
+    boolean isLock = tryLock(lockKey);
+    if (!isLock) {                       // 没拿到锁，不能解锁
+        sleep(50);
+        return queryWithMutext(id);
+    }
+    try {                                // 只有持锁线程会进来
+        Shop shop = getById(id);
+        sleep(200);
+        if (shop == null) {
+            ...set(key, "", CACHE_NULL_TTL, TimeUnit.MINUTES);
+            return null;
+        }
+        ...set(key, JSONUtil.toJsonStr(shop), CACHE_SHOP_TTL, TimeUnit.MINUTES);
+        return shop;
+    } finally {
+        unlock(lockKey);                 // 此时一定持有锁
+    }
+
+    配套加一个 private void sleep(long millis)，统一处理 InterruptedException。
+    不用新增 import（第 19 行已静态导入 RedisConstants.*）。
+
+
+四、遗留问题（本次不动）
+------------------------------------------------
+unlock() 是无条件 delete。若业务耗时超过锁的 TTL（tryLock 里写死 10 秒），
+锁会提前过期被别人抢走，本线程 finally 再把锁删掉，又删了别人的锁。
+根治办法是"存线程唯一标识 + Lua 脚本校验后删除"，
+即教程后面的 SimpleRedisLock / Redisson 分布式锁章节。
