@@ -10,6 +10,7 @@ import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisIdWorker;
 import com.hmdp.utils.UserHolder;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,7 +26,7 @@ import java.time.LocalDateTime;
  * @since 2021-12-22
  */
 @Service
-@Transactional
+
 public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, VoucherOrder> implements IVoucherOrderService {
 
     @Resource
@@ -57,6 +58,17 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             return Result.fail("库存不足！");
         }
 
+        return creatVoucherOrder(voucherId);
+    }
+
+
+    //对下面业务操作进行封装，ctrl+alt+m
+    //synchronized 是 Java 的同步关键字（加锁），作用是：同一时刻，只允许一个线程执行这个方法，其他线程必须排队等待。
+    //@Transactional 是什么 Spring 声明式事务，自动开启/提交/回滚
+    //解决什么问题 保证多个数据库操作要么全成功，要么全回滚（原子性）
+    @NonNull
+    @Transactional
+    public synchronized Result creatVoucherOrder(Long voucherId) {
         // 4.1 一人一单
         Long userId = UserHolder.getUser().getId();
 
@@ -64,7 +76,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         int count = query().eq("user_id", userId).eq("voucher_id", voucherId).count();
 
         // 4.1.2 判断是否存在
-        if (count > 0){
+        if (count > 0) {
             //用户已经购买过了
             return Result.fail("用户已经购买过了！");
         }
@@ -72,7 +84,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         // 5.扣减库存
         boolean success = seckillVoucherService.update()
                 .setSql("stock = stock - 1") // set stock = stock - 1
-                .eq("voucher_id", voucherId).gt("stock",0) // where id = ? and stock = ?
+                .eq("voucher_id", voucherId).gt("stock", 0) // where id = ? and stock = ?
                 .update();
         if (!success) {
             // 扣减失败
