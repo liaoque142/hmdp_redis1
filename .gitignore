@@ -31,3 +31,8 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### JMeter 压测用的 token 池 ###
+# 里面是 1000 个真实可用的登录凭证，不要提交
+tokens.csv
+*.jtl
