@@ -46,6 +46,10 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     @Resource
     private RedissonClient redissonClient;
+    private RedissonClient redissonClient2;
+    private RedissonClient redissonClient3;
+
+    private RLock lock;
 
     @Override
     public Result seckillVoucher(Long voucherId) {
@@ -74,7 +78,14 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         Long userId = UserHolder.getUser().getId();
         // 创建锁对象
 //        SimpleRedisLock lock = new SimpleRedisLock("order:" + userId, stringRedisTemplate);
-        RLock lock = redissonClient.getLock("lock:order:" + userId);
+        RLock lock1 = redissonClient.getLock("lock:order:" + userId);
+        RLock lock2 = redissonClient2.getLock("lock:order:" + userId);
+        RLock lock3 = redissonClient3.getLock("lock:order:" + userId);
+
+        // 创建联锁 multiLock
+        lock = redissonClient.getMultiLock(lock1, lock2, lock3);
+
+
         // 获取锁
         boolean islock = lock.tryLock();
         // 判断是否获取成功
