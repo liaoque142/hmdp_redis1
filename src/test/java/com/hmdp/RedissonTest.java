@@ -1,5 +1,6 @@
 package com.hmdp;
 
+import com.hmdp.dto.UserDTO;
 import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,22 +16,24 @@ import java.util.concurrent.TimeUnit;
 @SpringBootTest
 class RedissonTest {
 
+    @Resource
     private RedissonClient redissonClient;
+    @Resource
     private RedissonClient redissonClient2;
+    @Resource
     private RedissonClient redissonClient3;
 
     private RLock lock;
 
+
     @BeforeEach
     void setUp() {
-        Long userId = UserHolder.getUser().getId();
-        lock = redissonClient.getLock("order");
-        RLock lock1 = redissonClient.getLock("lock:order:" + userId);
-        RLock lock2 = redissonClient2.getLock("lock:order:" + userId);
-        RLock lock3 = redissonClient3.getLock("lock:order:" + userId);
+        RLock lock1 = redissonClient.getLock("order");
+        RLock lock2 = redissonClient2.getLock("order");
+        RLock lock3 = redissonClient3.getLock("order");
 
-        // 创建联锁 multiLock
-        lock = redissonClient.getMultiLock(lock1, lock2, lock3);
+        //创建连锁
+        lock = redissonClient2.getMultiLock(lock1, lock2, lock3);
     }
 
     @Test
@@ -66,3 +69,4 @@ class RedissonTest {
         }
     }
 }
+
