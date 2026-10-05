@@ -3,6 +3,8 @@
 local voucherId = ARGV[1]
 -- 1.2. 用户id
 local userId = ARGV[2]
+-- 1.3. 订单id
+local orderId = ARGV[3]
 
 -- 2. 数据key
 -- 2.1 库存key（注意这里加上了冒号）
@@ -12,21 +14,28 @@ local orderKey = 'seckill:order:' .. voucherId
 
 -- 3. 脚本业务
 -- 3.1 判断库存是否充足 (判断 <= 0)
-if(tonumber(redis.call('get',stockkey) or "0") <= 0) then
+if (tonumber(redis.call('get', stockkey) or "0") <= 0) then
     -- 3.2 库存不足，返回1
     return 1
 end
 
 -- 3.2 判断用户是否下单
-if(redis.call('sismember',orderKey,userId) == 1) then
+if (redis.call('sismember', orderKey, userId) == 1) then
     -- 3.3 存在，说明是重复下单，返回2
     return 2
 end
 
 -- 3.4 扣库存
-redis.call('incrby',stockkey,-1)
+redis.call('incrby', stockkey, -1)
 -- 3.5 下单 (保存用户)
-redis.call('sadd',orderKey,userId)
-
--- 3.6 抢单成功，返回0
+redis.call('sadd', orderKey, userId)
+-- 3.6 发送消息到队列中，XADD stream.orders * k1 v1 k2 v2
+redis.call(
+        'xadd',
+        'stream.orders',
+        '*',
+        'userId', userId,
+        'voucherId', voucherId,
+        'id', orderId
+)
 return 0
