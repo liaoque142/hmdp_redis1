@@ -58,6 +58,7 @@ public class BlogController {
     public Result queryBlogById(@PathVariable("id") Long id) {
         return blogService.queryBlogById(id);
     }
+
     @GetMapping("/likes/{id}")
     public Result queryBlogLikes(@PathVariable("id") Long id) {
         return blogService.queryBlogLikes(id);
@@ -74,4 +75,12 @@ public class BlogController {
         List<Blog> records = page.getRecords();
         return Result.ok(records);
     }
+
+    @GetMapping("/of/follow")
+    public Result queryBlogOfFollow(
+            @RequestParam("lastId") Long max,
+            @RequestParam(value = "offset", defaultValue = "0") Integer offset) {
+        return blogService.queryBlogOfFollow(max, offset);
+    }
+
 }
