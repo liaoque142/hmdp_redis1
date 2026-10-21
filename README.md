@@ -1,4 +1,4 @@
-# hm-dianping（黑马点评）
+# hm-dianping
 
 基于 Spring Boot + MyBatis-Plus + Redis 的仿大众点评项目，围绕 Redis 在真实业务场景下的应用展开：缓存一致性、分布式锁、全局唯一 ID、Lua 脚本秒杀、消息队列异步下单、点赞排行、好友关注与 Feed 流、GEO 附近商户、BitMap 签到、HyperLogLog UV 统计。
 
